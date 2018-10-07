@@ -61,10 +61,14 @@ There are basically 2 parts, only one of which is really all that complicated.  
     - Update `5` and `6` after comparing those values.
   - Update from Distance Detection:
     - Read Power Setting `A2`.
-    - Configure Timer 2 according to that value.
-    - Calculate Timer 1 lower and upper bounds based on calculated timing for a 25 pulse burst on Timer 2.
+    - Configure Timer 1 and Timer 2 according to that value.
+      - ??
+      - First thing will be to just vary the cycle duty on Timer 2.  I'll do from 0% ~ 70%.
+      - Calculate Timer 1 lower and upper bounds based on calculated timing for a 25 pulse burst on Timer 2.
     - Initiate 25 pulse burst on IR Emitter on pin `3`.
+    - Enable Timer 2's Overflow Interrupt `TIMSK2.TOIE2`.
     - Set Timer 1 to listen for falling edge and enable Input Capture Interrupt `TIMSK1.ICIE`.
+    - On Timer 2 Overflow: Increment
     - On Input Capture Interrupt:
       - If set for falling edge, input pulse has started:
         - Reset Timer 1 Count to 0.
