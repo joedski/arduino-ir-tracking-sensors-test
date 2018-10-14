@@ -84,6 +84,35 @@ There are basically 2 parts, only one of which is really all that complicated.  
         - Signal by status LED if yes or no.
 
 
+### Calculating the Bounds of Timer 1
+
+Since initially, I'm going with the center frequency of the TSOP38238, 38kHz, I can use the typical Sensor Output Pulse Times as the acceptable pulse range.  In the Fast Proximity note they used Time Carrier is Received (Tpi) less 5 pulses (5 / f0) as the lower bound and plus 6 pulses (6 / f0) as the upper bound of time for the Time Sensor Outputs (Tpo) to be considered a valid receipt of a carrier-modulated signal.
+
+- Tpi - 5 / f0 \< Tpo \< Tpi + 6 / f0
+
+Ordinarily, we could just assume the duration of a pulse length is a fixed value if the number of pulses is also fixed, but since frequency modulation may be a thing, we first need to calculate the actual time taken by a given pulse length.
+
+- Given:
+  - Carrier Pulse Count (Carrier-Pulses) n = 25
+  - Carrier Modulation Frequency (Hz) f0 = 38k
+  - Half Period (Timer 2 Ticks) t2 = 16MHz / (2 * f0)
+    - f0 (Hz) = 16MHz / 2 / t2 = 16MHz / (2 * t2)
+  - Time of Pulse Train Input (Seconds) Tpi = n / f0
+  - Timer 1 Prescaler (Unitless) T1pre = 64
+- Find Timer 1 Count Lower Bound (Timer 1 Ticks) T1nLower, Timer 1 Count Upper Bound (Timer 1 Ticks) T1nUpper
+  - T1nLower = T1tps * ((n - 5) / f0)
+    - :: (Timer-1-Ticks / Seconds) * ((Carrier-Pulses) / (Carrier-Pulses / Seconds))
+    - :: Timer-1-Ticks
+    - = 16MHz / T1pre * (n - 5) / f0
+    - = (16MHz / (T1pre * f0)) * (n - 5)
+    - NOTE: n - 5 is for the normal frequency.  If using off-center frequencies for the carrier modulation, consider numbers as low as n - 15.
+  - T1nUpper = T1tps * ((n + 6) / f0)
+    - = 16MHz / T1pre * (n + 6) / f0
+    - = (16MHz / (T1pre * f0)) * (n + 6)
+  - Find Timer 1 Ticks per Second (Timer-1-Ticks / Seconds) T1tps
+    - T1tps = 16MHz / T1pre
+
+
 
 ## Sources
 
