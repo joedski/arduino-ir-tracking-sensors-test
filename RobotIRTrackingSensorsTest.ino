@@ -36,6 +36,7 @@ enum class States {
   MotorDrive
 }
 
+// Since this will be updated by interrupts, it must be marked volatile.
 volatile int currentState = States.LeftRightSense;
 
 
@@ -71,7 +72,16 @@ void updateDiodeDifferential() {
 // Distance Stuff
 
 struct DistanceSense {
-  uint8_t signalStrengthInput;
+  // The _analog_ input we sample to determine
+  // the effective strength of the carrier.
+  const uint8_t signalStrengthInput;
+
+  // NOTE: The other two pins we use here, OC2B and ICP1,
+  // are not mentioned by name.
+  // In the case of OC2B (PD3/Arduino Digital 3), we simply set
+  // TCCR2A.COM2B1 on and off to toggle its activation.
+  // And for ICP1 (PB8/Arduino Digital 8), we twiddle TIMSK1.ICIE1
+  // to enable input capture event interrupts.
 
   struct Carrier {
     // Frequency of the carrier modulation.
@@ -96,7 +106,7 @@ struct DistanceSense {
     // Number of carrier pulses counted
     // so we know when to stop.
     // :: Carrier-Pulses
-    volatile uint8_t pulsesCounted;
+    volatile uint8_t pulsesRemaining;
     // :: Timer-2-Increments
     // :: (Clock-Ticks) / (2 * Carrier-Frequency)
     // = 16MHz / (2 * f0)
@@ -125,6 +135,8 @@ struct DistanceSense {
     // lower than this value.
     // :: Timer-1-Ticks
     uint16_t tickCountUpperBound;
+
+    volatile uint16_t ticksElapsed;
   } receiver;
 
   /**
@@ -171,13 +183,6 @@ struct DistanceSense {
     TCCR2A = (1<<WGM20);// | (0<<COM2B1);
     TCCR2B = (1<<WGM22) | (1<<CS20);
 
-    // We'll set OCR2A and OCR2B to appropriate values later,
-    // since they're determined at run time.
-    // // set timer2 TOP value
-    // OCR2A = HALF_PERIOD;
-    // // set switching value for the output pin
-    // OCR2B = DUTY_LOW;
-
     // set arduino D3, AVR PD3 as output pin
     // it can be hard-disabled as an output by setting it as an input pin,
     // but I think twiddling COM2B1 is fine.
@@ -187,13 +192,70 @@ struct DistanceSense {
     // ------------------------
 
     // Here, we do the following:
-    // Enable Input Capture Noise Cancelation (TCCR1B.ICNC1)
-    // Set the Prescaler to 64 (TCCR1B.CS11 & TCCR1B.CS10)
-    // And, not necessary, but set the Input Capture Edge Select to Falling (TCCR1B.ICES1)
+    // - Enable Input Capture Noise Cancelation (TCCR1B.ICNC1)
+    // - Set the Prescaler to 64 (TCCR1B.CS11 & TCCR1B.CS10)
+    // - And, not really necessary during setup, but set the
+    //   Input Capture Edge Select to Falling (TCCR1B.ICES1)
     TCCR1B = (1<<ICNC1) | (0<<ICES1) | (1<<CS11) | (1<<CS10);
 
     // We'll set OCR1A and OCR1B to appropriate values later,
     // then enable TIMSK1.ICIE1, etc.
+  }
+
+  void startSensing() {
+    // To start sensing, we do the following:
+    updateCarrierStrength();
+    updateTimer1Params();
+    updateTimer2Params();
+    enableIO();
+    ::currentState = States::DistanceSenseWaiting;
+  }
+
+  void updateCarrierStrength() {
+    carrier.strength = ::analogRead(signalStrengthInput);
+
+    // For now, we're just setting the duty based on this...
+    // Which means we don't need to set any Timer 1 parameters.
+    setDuty((float)carrier.strength / 1024.0);
+    updateReceiverTickBounds();
+  }
+
+  void updateTimer2Params() {
+    // Reset the pulses remaining..
+    carrier.pulsesRemaining = carrier.burstCountMax;
+
+    // set timer2 TOP value
+    OCR2A = carrier.halfPeriod;
+    // set switching value for the output pin
+    OCR2B = carrier.dutyCompValue;
+  }
+
+  void updateTimer1Params() {
+    // And set Input Capture Edge Select to Falling Edge.
+    TCCR1B &= ~(1<<ICES1);
+  }
+
+  void enableIO() {
+    // These's are all done in 1 body to hopefully limit funkiness from
+    // twiddling Timer 2's count value.
+
+    // reset timer 2 to 0.
+    TCNT2 = 0;
+    // start switching on the emitter.
+    TCCR2A |= (1<<COM2B1);
+    // Enable Timer 2's overflow interrupt so we can start counting pulses.
+    TIMSK2 |= (1<<TOIE2);
+
+    // Enable Timer 1's input capture event interrupt to listen for
+    // IR sensor changes.
+    TIMSK1 |= (1<<ICIE1);
+  }
+
+  bool wasSignalAcceptable() {
+    return (
+      receiver.ticksElapsed > receiver.tickCountLowerBound
+      && receiver.ticksElapsed < recover.tickCountUpperBound
+    );
   }
 } distanceSense = {
   .signalStrengthInput = 2,
@@ -206,69 +268,51 @@ struct DistanceSense {
     .burstCountLowerBound = 25 - 5,
     .burstCountUpperBound = 25 + 6,
 
-    .pulsesCounted = 0,
+    .pulsesRemaining = 0,
+
     .halfPeriod = 0,
     .duty = 0,
     .strength = 0
   },
 
   .receiver = {
-    .tickCountMin = 0,
-    .tickCountMax = 0
+    .tickCountLowerBound = 0,
+    .tickCountUpperBound = 0,
+
+    .ticksElapsed = 0
   }
 };
 
-// // Vishay's Fast Proximity App Note seemed to indicate this was a good count,
-// // even when going off the center frequnecy.
-// const uint8_t CARRIER_BURST_COUNT = 25;
-// // How many carrier modulation pulses long
-// // is the lower bound for an acceptable signal
-// const uint8_t CARRIER_BURST_COUNT_LOWER = CARRIER_BURST_COUNT - 5;
-// // How many carrier modulation pulses long
-// // is the upper bound for an acceptable signal
-// const uint8_t CARRIER_BURST_COUNT_UPPER = CARRIER_BURST_COUNT + 6;
-// // Analog pin we read the strength setting from.
-// const uint8_t IN_DISTANCE_SIGNAL_STRENGTH = 2;
-// // Track the number of pulses for Timer 1 to tick for.
-// volatile uint8_t distanceCarrierBurstCount = 0;
-// // Half period for our carrier.
-// // t2 = 16MHz / (2 * f0)
-// uint8_t distanceCarrierHalfPeriod = 210;
-// // Duty cycle.
-// // = t2 * d%; so 30% duty is t2 * 0.3;
-// uint8_t distanceCarrierDuty = 63;
-// int16_t distanceCarrierStrength = 0;
-//
-// // These two values define the range of acceptable values
-// // for Timer 1.
-// // Minimum acceptable count on Timer 1
-// uint16_t distanceReceiverMinCount = 0;
-// // Maximum acceptable count on Timer 1
-// uint16_t distanceReceiverMaxCount = 0;
+ISR(TIMER1_CAPT_vect) {
+  if (TCCR1B & (1<<ICES1) == 0) {
+    // We were called on a falling edge.
+    // The IR sensor picked up a signal!
+    // Zero-out the timer counter,
+    TCNT1 = 0;
+    // then set edge detection to rising edge.
+    TCCR1B &= ~(1<<ICES1);
+  }
+  else {
+    // We were called on a rising edge.
+    // The IR sensor has stopped receiving a signal!
+    // Read the count,
+    distanceSense.receiver.ticksElapsed = TCNT1;
+    // Disable input capture interrupts,
+    TIMSK1 &= ~(1<<ICIE1);
+    // And update the state machine's state.
+    currentState = States::DistanceSenseEnded;
+  }
+}
 
-// // These start and stop Arduino Pin 3 pulsing.
-// #define stopPulsing() TCCR2A &= ~(1<<COM2B1)
-// #define startPulsing() TCCR2A |= (1<<COM2B1)
-// #define setPulseDuty(duty) OCR2B = duty
-
-// void beginDistanceSense() {
-//   // Step 1: Read our sensor.
-//   // We need just an 8-bit number, so just take off the 2 LSBs.
-//   distanceSignalStrength = analogRead(IN_DISTANCE_SIGNAL_STRENGTH) >> 2;
-//
-//   // Step 2: Configure Timers.
-//   // TODO: Try out various ways to calculate strength.
-//   // For now, just varying the duty cycle from 0% ~ 70%:
-//   // NOTE: This might not work, it might not actually detect it until like 30%.
-//   // Or it might work well enough.  I'd need to dig through the data sheets again.
-//   distanceSignalDuty = lerp8by8(0, distanceSignalHalfPeriod, distanceSignalStrength);
-//
-//   // Technically, by not changing the frequency of Timer 2,
-//   // we don't need to recalculate the lower and upper acceptable bounds
-//   // of Timer 1.
-//   // It's easier to modify in the future, though, if I leave it here.
-//   // TODO everything!
-// }
+ISR(TIMER2_OVF_vect) {
+  distanceSense.carrier.pulsesRemaining -= 1;
+  if (distanceSense.carrier.pulsesRemaining == 0) {
+    // Once we've counted down...
+    // Disable the overflow interrupt,
+    TIMSK2 &= ~(1<<TOIE2);
+    // ... and that's it!
+  }
+}
 
 
 // Main
@@ -288,6 +332,7 @@ void loop() {
       break;
 
     case States::DistanceSenseBeginning:
+      distanceSense.startSensing();
       break;
 
     case States::DistanceSenseWaiting:
@@ -295,6 +340,9 @@ void loop() {
       break;
 
     case States::DistanceSenseEnded:
+      if (distanceSense.wasSignalAcceptable()) {
+        // ... TODO: do something!
+      }
       break;
   }
 }
