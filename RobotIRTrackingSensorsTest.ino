@@ -236,11 +236,13 @@ struct DistanceSense {
   }
 
   void enableIO() {
-    // These's are all done in 1 body to hopefully limit funkiness from
-    // twiddling Timer 2's count value.
+    // These's are all done in 1 body since they're slightly more timing critical.
 
     // reset timer 2 to 0.
+    // This should ensure a well formed initial pulse
+    // in the carirer waveform.
     TCNT2 = 0;
+
     // start switching on the emitter.
     TCCR2A |= (1<<COM2B1);
     // Enable Timer 2's overflow interrupt so we can start counting pulses.
@@ -295,8 +297,12 @@ ISR(TIMER1_CAPT_vect) {
   else {
     // We were called on a rising edge.
     // The IR sensor has stopped receiving a signal!
-    // Read the count,
-    distanceSense.receiver.ticksElapsed = TCNT1;
+    // Read the count from the Input Capture Register
+    // rather than the Timer Counter Register TCNT1,
+    // as this hopefully reduces the chance of corruption,
+    // (although given we have a premultiplier of 64,
+    // that's probably not a problem?)
+    distanceSense.receiver.ticksElapsed = ICR1;
     // Disable input capture interrupts,
     TIMSK1 &= ~(1<<ICIE1);
     // And update the state machine's state.
@@ -321,6 +327,9 @@ ISR(TIMER2_OVF_vect) {
 void setup() {
   setupDiodeDifferential();
   distanceSense.setup();
+
+  // For now, just setting the LED...
+  pinMode(13, OUTPUT);
 }
 
 void loop() {
@@ -340,9 +349,19 @@ void loop() {
       break;
 
     case States::DistanceSenseEnded:
-      if (distanceSense.wasSignalAcceptable()) {
-        // ... TODO: do something!
-      }
+      // ... well, it works!
+      digitalWrite(13, (
+        distanceSense.wasSignalAcceptable()
+          ? HIGH
+          : LOW
+      ));
+
+      // if (distanceSense.wasSignalAcceptable()) {
+      //   // ... TODO: do something!
+      // }
+
+      // Back to start!
+      currentState = States::LeftRightSense;
       break;
   }
 }

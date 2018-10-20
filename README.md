@@ -1,6 +1,8 @@
 # arduino-ir-tracking-sensors-test
 
-More specific test for my IR tracking robot head
+More specific test for my IR tracking robot head.
+
+I wrote the Distance Sense part of the code as a struct/class singleton to organize my thoughts better.
 
 
 
