@@ -144,8 +144,6 @@ struct DistanceSense {
    */
   void setF0(float nextF0) {
     carrier.f0 = nextF0;
-    carrier.halfPeriod = (uint8_t)(16e6 / (2 * carrier.f0));
-    carrier.dutyCompValue = (uint8_t)((float)carrier.halfPeriod * carrier.duty);
   }
 
   /**
@@ -153,6 +151,10 @@ struct DistanceSense {
    */
   void setDuty(float nextDuty) {
     carrier.duty = nextDuty;
+  }
+
+  void updateCarrierDerivedValues() {
+    carrier.halfPeriod = (uint8_t)(16e6 / (2 * carrier.f0));
     carrier.dutyCompValue = (uint8_t)((float)carrier.halfPeriod * carrier.duty);
   }
 
@@ -175,11 +177,11 @@ struct DistanceSense {
     // Granted, it does exactly what I want, and there's
     // only so many ways to twiddle bits.
 
-    // Set Wave Gen Mode to Mode 5: PWM Phase Correct with Top = OCR2A
+    // - Set Wave Gen Mode to Mode 5: PWM Phase Correct with Top = OCR2A
     //   (TCCR2A.WGM20 & TCCR2B.WGM22)
-    // Use System Clock with No Prescaler (TCCR2B.CS20)
-    // NOTE: We won't use OC2A for output, but we will use OC2B
-    // in 1,0 mode (clear on match counting up, set on match counting down).
+    // - Use System Clock with No Prescaler (TCCR2B.CS20)
+    //   NOTE: We won't use OC2A for output, but we will use OC2B
+    //   in 1,0 mode (clear on match counting up, set on match counting down).
     TCCR2A = (1<<WGM20);// | (0<<COM2B1);
     TCCR2B = (1<<WGM22) | (1<<CS20);
 
@@ -187,6 +189,9 @@ struct DistanceSense {
     // it can be hard-disabled as an output by setting it as an input pin,
     // but I think twiddling COM2B1 is fine.
     DDRD |= (1<<DDD3);
+
+    // Update the halfPeriod and dutyCompValue.
+    updateCarrierDerivedValues();
 
     // Next, setting up Timer 2
     // ------------------------
