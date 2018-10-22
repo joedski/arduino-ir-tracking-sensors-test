@@ -19,25 +19,25 @@
 
 
 // A0 is used for the diodes
-const int IN_SENSE = 0
+const int IN_SENSE = 0;
 // A1 is used for the center voltage reference
-const int IN_VREF = 1
+const int IN_VREF = 1;
 
 // Pin to light up more when the higher photodiode conducts more
-const int OUT_HIGHER = 5
+const int OUT_HIGHER = 5;
 // Pin to light up more when the lower photodiode conducts more
-const int OUT_LOWER = 6
+const int OUT_LOWER = 6;
 
-enum class States {
+enum class SMState {
   LeftRightSense,
   DistanceSenseBeginning,
   DistanceSenseWaiting,
   DistanceSenseEnded,
   MotorDrive
-}
+};
 
 // Since this will be updated by interrupts, it must be marked volatile.
-volatile int currentState = States.LeftRightSense;
+volatile SMState currentState = SMState::LeftRightSense;
 
 
 // Functionality
@@ -213,7 +213,7 @@ struct DistanceSense {
     updateTimer1Params();
     updateTimer2Params();
     enableIO();
-    ::currentState = States::DistanceSenseWaiting;
+    ::currentState = SMState::DistanceSenseWaiting;
   }
 
   void updateCarrierStrength() {
@@ -261,7 +261,7 @@ struct DistanceSense {
   bool wasSignalAcceptable() {
     return (
       receiver.ticksElapsed > receiver.tickCountLowerBound
-      && receiver.ticksElapsed < recover.tickCountUpperBound
+      && receiver.ticksElapsed < receiver.tickCountUpperBound
     );
   }
 } distanceSense = {
@@ -278,7 +278,7 @@ struct DistanceSense {
     .pulsesRemaining = 0,
 
     .halfPeriod = 0,
-    .duty = 0,
+    .dutyCompValue = 0,
     .strength = 0
   },
 
@@ -311,7 +311,7 @@ ISR(TIMER1_CAPT_vect) {
     // Disable input capture interrupts,
     TIMSK1 &= ~(1<<ICIE1);
     // And update the state machine's state.
-    currentState = States::DistanceSenseEnded;
+    currentState = SMState::DistanceSenseEnded;
   }
 }
 
@@ -340,20 +340,20 @@ void setup() {
 void loop() {
   switch (currentState) {
     default:
-    case States::LeftRightSense:
+    case SMState::LeftRightSense:
       updateDiodeDifferential();
-      currentState = States::DistanceSenseBeginning;
+      currentState = SMState::DistanceSenseBeginning;
       break;
 
-    case States::DistanceSenseBeginning:
+    case SMState::DistanceSenseBeginning:
       distanceSense.startSensing();
       break;
 
-    case States::DistanceSenseWaiting:
+    case SMState::DistanceSenseWaiting:
       // we just do nothing!
       break;
 
-    case States::DistanceSenseEnded:
+    case SMState::DistanceSenseEnded:
       // ... well, it works!
       digitalWrite(13, (
         distanceSense.wasSignalAcceptable()
@@ -366,7 +366,7 @@ void loop() {
       // }
 
       // Back to start!
-      currentState = States::LeftRightSense;
+      currentState = SMState::LeftRightSense;
       break;
   }
 }
