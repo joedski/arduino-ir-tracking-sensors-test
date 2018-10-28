@@ -31,6 +31,49 @@ Since I'm basically bodging Vishay's Fast Proximity stuff on to a simple analog 
 
 
 
+## Timer Considerations
+
+
+### Timer 2: Distance Sense Signal Carrier
+
+- Setup:
+  - Control Registers:
+    - `TCCR2[A:B]` are set to have only the following bits On:
+      - `TCCR2A.WGM20 & TCCR2B.WGM22` - Wave Generation Mode 5: Phase Correct PWM with Top = `OCR2A`.
+      - `TCCR2B.CS20` - Use System Clock with No Prescaler.
+  - Pin I/O Registers:
+    - `DDRD` has the following pin set to Output (bit = On):
+      - `DDRD.DDD3`
+- Control:
+  - `OCR2A` - Timer 2 Top value.
+    - This is set to the Half Period (in System Clock Ticks) of our target frequency.
+  - `OCR2B` - Timer 2 Carrier Duty Cycle.
+    - This is set to `OCR2A * Duty%` to determine the Duty Cycle.
+    - A 30% Duty Cycle is `OCR2A * 0.3f`, but as an int obviously.
+  - `TCNT2` - Timer 2 Counter.  We reset this to 0 when starting to ensure a well formed initial pulse.
+    - Not sure if it's necessary or not, probably not, but oh well?
+  - `TCCR2A.COM2B1` - Turn this bit On to turn Pin 3 on for the duty cycle.
+  - `TIMSK2.IOIE2` - Enable Timer 2 Overflow Interrupt.  Using the Overflow Interrupt Handler to count Carrier Pulses.
+
+
+### Timer 1: Distance Sense Event Listener
+
+- Control Register Setup:
+  - `TCCR1A` is left with all bits Off.
+  - `TCCR1B` is set to have only the following bits On:
+    - `TCCR1B.CS11 & TCCR1B.CS10` - Use System Clock with Prescaler of 64.
+    - `TCCR1B.ICNC1` - Enable Input Capture Noise Cancelation
+- Control:
+  - `TCCR1B.ICES1` - Input Capture Edge Select, set to 0 when starting sensing to listen for a falling edge, then set to 1 after the initial falling edge is detected to listen for the corresponding rising edge.
+    - We start with falling edge because the TSOP38238 and other such IR sensors have Active-Low outputs, meaning their output is normally high, then is pulled low when they've detected a signal.
+    - Thus, Falling Edge means Sensor Began Recognizing a Signal, Rising Edge means Sensor Stopped Recognizing a Signal.
+    - Since there's only one Input Capture Event Interrupt Handler, we check this bit to determine which edge we're reacting to.
+  - `TIMSK1.ICIE1` - Input Capture Event Interrupt Enable.  Lets us detect those edges!
+  - `TCNT1` - Timer 1 Counter.  We reset this to 0 when we hit a falling edge.
+  - `ICR1` - Timer 1 Input Capture Register.  We read this when we hit a rising edge.
+
+
+
 ## Outline of Operation
 
 There are basically 2 parts, only one of which is really all that complicated.  Due to asynchrony, the main body of the Loop is a simple Finite State Machine.
