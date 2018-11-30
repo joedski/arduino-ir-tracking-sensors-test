@@ -213,7 +213,7 @@ struct DistanceSense {
     updateTimer1Params();
     updateTimer2Params();
     enableIO();
-    ::currentState = SMState::DistanceSenseWaiting;
+    ::currentState = ::SMState::DistanceSenseWaiting;
   }
 
   void updateCarrierStrength() {
