@@ -1,6 +1,6 @@
 # arduino-ir-tracking-sensors-test
 
-> NOTE: I've moved this to a PlatformIO project [here](https://github.com/joedski/arduino-ir-range-sensor).
+> NOTE: I've moved this to/rewritten it in a PlatformIO project [here](https://github.com/joedski/arduino-ir-range-sensor).
 
 More specific test for my IR tracking robot head.
 
