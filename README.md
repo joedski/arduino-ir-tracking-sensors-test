@@ -1,5 +1,7 @@
 # arduino-ir-tracking-sensors-test
 
+> NOTE: I've moved this to a PlatformIO project [here](https://github.com/joedski/arduino-ir-range-sensor).
+
 More specific test for my IR tracking robot head.
 
 I wrote the Distance Sense part of the code as a struct/class singleton to organize my thoughts better.
